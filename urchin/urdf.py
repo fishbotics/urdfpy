@@ -2388,37 +2388,23 @@ class Joint(URDFType):
         elif self.joint_type == "fixed":
             return self.origin
         elif self.joint_type in ["revolute", "continuous"]:
-            if cfg is None:
-                cfg = 0.0
-            else:
-                cfg = float(cfg)
+            cfg = float(cfg)
             R = trimesh.transformations.rotation_matrix(cfg, self.axis)
             return self.origin.dot(R)
         elif self.joint_type == "prismatic":
-            if cfg is None:
-                cfg = 0.0
-            else:
-                cfg = float(cfg)
+            cfg = float(cfg)
             translation = np.eye(4, dtype=np.float64)
             translation[:3, 3] = self.axis * cfg
             return self.origin.dot(translation)
         elif self.joint_type == "planar":
-            if cfg is None:
-                cfg = np.zeros(2, dtype=np.float64)
-            else:
-                cfg = np.asanyarray(cfg, dtype=np.float64)
+            cfg = np.asanyarray(cfg, dtype=np.float64)
             if cfg.shape != (2,):
                 raise ValueError("(2,) float configuration required for planar joints")
             translation = np.eye(4, dtype=np.float64)
             translation[:3, 3] = self.origin[:3, :2].dot(cfg)
             return self.origin.dot(translation)
         elif self.joint_type == "floating":
-            if cfg is None:
-                cfg = np.zeros(6, dtype=np.float64)
-            else:
-                cfg = configure_origin(cfg)
-            if cfg is None:
-                raise ValueError("Invalid configuration for floating joint")
+            cfg = configure_origin(cfg)
             return self.origin.dot(cfg)
         else:
             raise ValueError("Invalid configuration")
@@ -2454,12 +2440,8 @@ class Joint(URDFType):
         elif self.joint_type == "fixed":
             return np.tile(self.origin, (n_cfgs, 1, 1))
         elif self.joint_type in ["revolute", "continuous"]:
-            if cfg is None:
-                cfg = np.zeros(n_cfgs)
             return np.matmul(self.origin, self._rotation_matrices(cfg, self.axis))
         elif self.joint_type == "prismatic":
-            if cfg is None:
-                cfg = np.zeros(n_cfgs)
             translation = np.tile(np.eye(4), (n_cfgs, 1, 1))
             translation[:, :3, 3] = self.axis * cfg[:, np.newaxis]
             return np.matmul(self.origin, translation)

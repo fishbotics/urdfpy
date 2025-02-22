@@ -2437,8 +2437,10 @@ class Joint(URDFType):
             - ``prismatic`` - a translation along the axis in meters.
             - ``revolute`` - a rotation about the axis in radians.
             - ``continuous`` - a rotation about the axis in radians.
-            - ``planar`` - Not implemented.
-            - ``floating`` - Not implemented.
+            - ``planar`` - the x and y translation values in the plane.
+              as an (n,2) matrix.
+            - ``floating`` - the xyz values followed by the rpy values,
+              as (n,6) or a (n,4,4) matrix.
 
             If ``cfg`` is ``None``, then this just returns the joint pose.
 
@@ -2462,9 +2464,15 @@ class Joint(URDFType):
             translation[:, :3, 3] = self.axis * cfg[:, np.newaxis]
             return np.matmul(self.origin, translation)
         elif self.joint_type == "planar":
-            raise NotImplementedError()
+            cfg = np.asanyarray(cfg, dtype=np.float64)
+            if cfg.shape[-1] != 2:
+                raise ValueError("(...,2) float configuration required for planar joints")
+            translation = np.tile(np.eye(4), (n_cfgs, 1, 1))
+            translation[:, :3, 3] = np.matmul(self.origin[np.newaxis, :3, :2], cfg[..., np.newaxis]).squeeze()
+            return np.matmul(self.origin, translation)
         elif self.joint_type == "floating":
-            raise NotImplementedError()
+            cfg = configure_origin(cfg)
+            return np.matmul(self.origin, cfg)
         else:
             raise ValueError("Invalid configuration")
 

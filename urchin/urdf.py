@@ -4019,12 +4019,27 @@ class URDF(URDFTypeWithMesh):
                     joint_cfg[joint] = cfg[joint]
         elif isinstance(cfg, (list, tuple, np.ndarray)):
             if len(cfg) != len(self.actuated_joints):
-                raise ValueError(
-                    "Cfg must have same length as actuated joints "
-                    "if specified as a numerical array"
-                )
-            for joint, value in zip(self.actuated_joints, cfg):
-                joint_cfg[joint] = value
+                try:
+                    cfg = np.asanyarray(cfg, dtype=np.float64)
+                except ValueError:
+                    raise ValueError(
+                        "Cfg must have same length as actuated joints or dof "
+                        "if specified as a numerical array"
+                    )
+            if not isinstance(cfg, np.ndarray):
+                for joint, value in zip(self.actuated_joints, cfg):
+                    joint_cfg[joint] = value
+            else:
+                sidx = 0
+                for j in self.actuated_joints:
+                    if j.joint_type == "planar":
+                        eidx = sidx + 2
+                    elif j.joint_type == "floating":
+                        eidx = sidx + 6
+                    else:
+                        eidx = sidx + 1
+                    joint_cfg[j] = cfg[sidx:eidx].squeeze()
+                    sidx = eidx
         else:
             raise TypeError("Invalid type for config")
         return joint_cfg
@@ -4058,9 +4073,23 @@ class URDF(URDFTypeWithMesh):
             elif cfgs[0] is None:
                 pass
             else:
-                cfgs = np.asanyarray(cfgs, dtype=np.float64)
-                for i, j in enumerate(self.actuated_joints):
-                    joint_cfg[j] = cfgs[:, i]
+                if isinstance(cfgs, (list, tuple)):
+                    if len(cfgs) == len(self.actuated_joints):
+                        for i, j in enumerate(self.actuated_joints):
+                            joint_cfg[j].append(cfgs[i])
+                    else:
+                        cfgs = np.asanyarray(cfgs, dtype=np.float64)
+                if isinstance(cfgs, np.ndarray):
+                    sidx = 0
+                    for j in self.actuated_joints:
+                        if j.joint_type == "planar":
+                            eidx = sidx + 2
+                        elif j.joint_type == "floating":
+                            eidx = sidx + 6
+                        else:
+                            eidx = sidx + 1
+                        joint_cfg[j] = cfgs[:, sidx:eidx].squeeze()
+                        sidx = eidx
         else:
             raise ValueError("Incorrectly formatted config array")
 

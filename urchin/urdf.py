@@ -2388,37 +2388,23 @@ class Joint(URDFType):
         elif self.joint_type == "fixed":
             return self.origin
         elif self.joint_type in ["revolute", "continuous"]:
-            if cfg is None:
-                cfg = 0.0
-            else:
-                cfg = float(cfg)
+            cfg = float(cfg)
             R = trimesh.transformations.rotation_matrix(cfg, self.axis)
             return self.origin.dot(R)
         elif self.joint_type == "prismatic":
-            if cfg is None:
-                cfg = 0.0
-            else:
-                cfg = float(cfg)
+            cfg = float(cfg)
             translation = np.eye(4, dtype=np.float64)
             translation[:3, 3] = self.axis * cfg
             return self.origin.dot(translation)
         elif self.joint_type == "planar":
-            if cfg is None:
-                cfg = np.zeros(2, dtype=np.float64)
-            else:
-                cfg = np.asanyarray(cfg, dtype=np.float64)
+            cfg = np.asanyarray(cfg, dtype=np.float64)
             if cfg.shape != (2,):
                 raise ValueError("(2,) float configuration required for planar joints")
             translation = np.eye(4, dtype=np.float64)
             translation[:3, 3] = self.origin[:3, :2].dot(cfg)
             return self.origin.dot(translation)
         elif self.joint_type == "floating":
-            if cfg is None:
-                cfg = np.zeros(6, dtype=np.float64)
-            else:
-                cfg = configure_origin(cfg)
-            if cfg is None:
-                raise ValueError("Invalid configuration for floating joint")
+            cfg = configure_origin(cfg)
             return self.origin.dot(cfg)
         else:
             raise ValueError("Invalid configuration")
@@ -2437,8 +2423,10 @@ class Joint(URDFType):
             - ``prismatic`` - a translation along the axis in meters.
             - ``revolute`` - a rotation about the axis in radians.
             - ``continuous`` - a rotation about the axis in radians.
-            - ``planar`` - Not implemented.
-            - ``floating`` - Not implemented.
+            - ``planar`` - the x and y translation values in the plane.
+              as an (n,2) matrix.
+            - ``floating`` - the xyz values followed by the rpy values,
+              as (n,6) or a (n,4,4) matrix.
 
             If ``cfg`` is ``None``, then this just returns the joint pose.
 
@@ -2452,19 +2440,21 @@ class Joint(URDFType):
         elif self.joint_type == "fixed":
             return np.tile(self.origin, (n_cfgs, 1, 1))
         elif self.joint_type in ["revolute", "continuous"]:
-            if cfg is None:
-                cfg = np.zeros(n_cfgs)
             return np.matmul(self.origin, self._rotation_matrices(cfg, self.axis))
         elif self.joint_type == "prismatic":
-            if cfg is None:
-                cfg = np.zeros(n_cfgs)
             translation = np.tile(np.eye(4), (n_cfgs, 1, 1))
             translation[:, :3, 3] = self.axis * cfg[:, np.newaxis]
             return np.matmul(self.origin, translation)
         elif self.joint_type == "planar":
-            raise NotImplementedError()
+            cfg = np.asanyarray(cfg, dtype=np.float64)
+            if cfg.shape[-1] != 2:
+                raise ValueError("(...,2) float configuration required for planar joints")
+            translation = np.tile(np.eye(4), (n_cfgs, 1, 1))
+            translation[:, :3, 3] = np.matmul(self.origin[np.newaxis, :3, :2], cfg[..., np.newaxis]).squeeze()
+            return np.matmul(self.origin, translation)
         elif self.joint_type == "floating":
-            raise NotImplementedError()
+            cfg = configure_origin(cfg)
+            return np.matmul(self.origin, cfg)
         else:
             raise ValueError("Invalid configuration")
 
@@ -4029,12 +4019,27 @@ class URDF(URDFTypeWithMesh):
                     joint_cfg[joint] = cfg[joint]
         elif isinstance(cfg, (list, tuple, np.ndarray)):
             if len(cfg) != len(self.actuated_joints):
-                raise ValueError(
-                    "Cfg must have same length as actuated joints "
-                    "if specified as a numerical array"
-                )
-            for joint, value in zip(self.actuated_joints, cfg):
-                joint_cfg[joint] = value
+                try:
+                    cfg = np.asanyarray(cfg, dtype=np.float64)
+                except ValueError:
+                    raise ValueError(
+                        "Cfg must have same length as actuated joints or dof "
+                        "if specified as a numerical array"
+                    )
+            if not isinstance(cfg, np.ndarray):
+                for joint, value in zip(self.actuated_joints, cfg):
+                    joint_cfg[joint] = value
+            else:
+                sidx = 0
+                for j in self.actuated_joints:
+                    if j.joint_type == "planar":
+                        eidx = sidx + 2
+                    elif j.joint_type == "floating":
+                        eidx = sidx + 6
+                    else:
+                        eidx = sidx + 1
+                    joint_cfg[j] = cfg[sidx:eidx].squeeze()
+                    sidx = eidx
         else:
             raise TypeError("Invalid type for config")
         return joint_cfg
@@ -4068,9 +4073,23 @@ class URDF(URDFTypeWithMesh):
             elif cfgs[0] is None:
                 pass
             else:
-                cfgs = np.asanyarray(cfgs, dtype=np.float64)
-                for i, j in enumerate(self.actuated_joints):
-                    joint_cfg[j] = cfgs[:, i]
+                if isinstance(cfgs, (list, tuple)):
+                    if len(cfgs) == len(self.actuated_joints):
+                        for i, j in enumerate(self.actuated_joints):
+                            joint_cfg[j].append(cfgs[i])
+                    else:
+                        cfgs = np.asanyarray(cfgs, dtype=np.float64)
+                if isinstance(cfgs, np.ndarray):
+                    sidx = 0
+                    for j in self.actuated_joints:
+                        if j.joint_type == "planar":
+                            eidx = sidx + 2
+                        elif j.joint_type == "floating":
+                            eidx = sidx + 6
+                        else:
+                            eidx = sidx + 1
+                        joint_cfg[j] = cfgs[:, sidx:eidx].squeeze()
+                        sidx = eidx
         else:
             raise ValueError("Incorrectly formatted config array")
 
